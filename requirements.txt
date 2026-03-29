@@ -1,0 +1,14 @@
+pyTelegramBotAPI
+requests
+psutil
+pyperclip
+Pillow
+mouse
+pyttsx3
+GPUtil
+opencv-python
+numpy
+mss
+sounddevice
+scipy
+wavio
