@@ -270,7 +270,7 @@ def send_webcam_photo(message):
             cap.release() # КРИТИЧНО: освобождаем камеру для других функций
             
             with open(path, "rb") as img:
-                bot.send_photo(message.chat.id, img, caption="📸 Сосед пойман врасплох!")
+                bot.send_photo(message.chat.id, img, caption="📸 Опа ну ты и красавчик сегодня!")
             os.remove(path)
         else:
             cap.release()
